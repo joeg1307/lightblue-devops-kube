@@ -19,58 +19,75 @@ stages:
     image_name: ${CF_APP_NAME}
     script: |
       #!/bin/bash
-      # uncomment to debug the script
-      #set -x
-
-      # This script does build a Docker image into IBM Container Service private image registry, and copies information into
-      # a build.properties file, so they can be reused later on by other scripts (e.g. image url, chart name, ...)
+      echo -e "Variables de entorno de compilación:"
       echo "REGISTRY_URL=${REGISTRY_URL}"
       echo "REGISTRY_NAMESPACE=${REGISTRY_NAMESPACE}"
       echo "IMAGE_NAME=${IMAGE_NAME}"
       echo "BUILD_NUMBER=${BUILD_NUMBER}"
-      echo "ARCHIVE_DIR=${ARCHIVE_DIR}"
-      echo "GIT_BRANCH=${GIT_BRANCH}"
-      echo "GIT_COMMIT=${GIT_COMMIT}"
-
-      # Building using gradle and Java8
-      # export JAVA_HOME=~/java8
-      # ./gradlew build
-      # ./gradlew docker
-
       IMAGE_TAG=${BUILD_NUMBER}
+      # Obtenga más información sobre las variables de entorno disponibles en:
+      # https://cloud.ibm.com/docs/services/ContinuousDelivery?topic=ContinuousDelivery-deliverypipeline_environment#deliverypipeline_environment
+
+      # Para revisar o cambiar las opciones de compilación utilice:
+
+
+
       echo "=========================================================="
       echo -e "BUILDING CONTAINER IMAGE: ${IMAGE_NAME}:${IMAGE_TAG}"
-
       if [ `ibmcloud cr image-list -q | grep "web" | wc -l` -eq 1 ]; then
         ibmcloud cr image-rm `ibmcloud cr image-list -q | grep "web";`
       fi
 
       sleep 5
-      
+
       if [ `ibmcloud cr image-list -q | grep "catalog" | wc -l` -eq 1 ]; then
         ibmcloud cr image-rm `ibmcloud cr image-list -q | grep "catalog";`
       fi
 
       sleep 10
 
-      # cd docker
-      ibmcloud cr build -t ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG} .
+      #ensure docker and buildkit are present if not already in current pipeline-base-image
+      which buildctl > /dev/null || (curl -fsSL https://github.com/moby/buildkit/releases/download/v0.8.0/buildkit-v0.8.0.linux-amd64.tar.gz | tar zxf - --strip-components=1 -C /usr/bin bin/buildctl)
+      which docker > /dev/null || (curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-19.03.9.tgz | tar zxf - --strip-components=1 -C /usr/bin docker/docker)
+
+      FULL_IMAGE_NAME=$REGISTRY_URL/$REGISTRY_NAMESPACE/$IMAGE_NAME
+
+      #Classic pipeline Container Registry job requires PIPELINE_IMAGE_URL to be defined, so the next deploy job could access this value:
+      export PIPELINE_IMAGE_URL="${FULL_IMAGE_NAME}:$BUILD_NUMBER"
+
+      echo -e "Compilando la imagen del contenedor"
+      set -x
+      ibmcloud cr login
+
+
+      echo -e "Comprobando el Dockerfile en la raíz de repositorio"
+      if [ -f Dockerfile ]; then
+          echo "Se ha encontrado el Dockerfile"
+      else
+          echo "No se ha encontrado el Dockerfile"
+          exit 1
+      fi
+      buildctl build --frontend dockerfile.v0 --local context=. --local dockerfile=. \
+      --output type=image,name=${PIPELINE_IMAGE_URL},push=true \
+      --export-cache type=registry,ref=${FULL_IMAGE_NAME}:buildcache \
+      --import-cache type=registry,ref=${FULL_IMAGE_NAME}:buildcache
+      set +x
+
 
       # ibmcloud cr image-inspect ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}
-      # cd ..
 
+      pwd
+      ls -l
+      echo "${ARCHIVE_DIR}"
       # Set PIPELINE_IMAGE_URL for subsequent jobs in stage (e.g. Vulnerability Advisor)
       export PIPELINE_IMAGE_URL="$REGISTRY_URL/$REGISTRY_NAMESPACE/$IMAGE_NAME:$IMAGE_TAG"
-
       # Persist env variables into a properties file (build.properties) so that all pipeline stages consuming this
       # build as input and configured with an environment properties file valued 'build.properties'
       # will be able to reuse the env variables in their job shell scripts.
-
       # If already defined build.properties from prior build job, append to it.
       mkdir $ARCHIVE_DIR
       cp deployment.yml $ARCHIVE_DIR/
       touch $ARCHIVE_DIR/build.properties
-
       # IMAGE information from build.properties is used in Helm Chart deployment to set the release name
       echo "IMAGE_NAME=${IMAGE_NAME}" >> $ARCHIVE_DIR/build.properties
       echo "IMAGE_TAG=${IMAGE_TAG}" >> $ARCHIVE_DIR/build.properties
