@@ -12,9 +12,9 @@ template:
     - form
   info:
     git url: >-
-      [https://github.com/ibm-cloud-academy/lightblue-devops-kube](https://github.com/ibm-cloud-academy/lightblue-devops-kube)
+      [https://github.com/joeg1307/lightblue-devops-kube/](https://github.com/joeg1307/lightblue-devops-kube/)
     git branch: >-
-      [master](https://github.com/ibm-cloud-academy/lightblue-devops-kube/tree/master)
+      [master](https://github.com/joeg1307/lightblue-devops-kube/tree/master)
 toolchain:
   name: 'lightbluecompute-devops-kube-{{timestamp}}'
   template:
